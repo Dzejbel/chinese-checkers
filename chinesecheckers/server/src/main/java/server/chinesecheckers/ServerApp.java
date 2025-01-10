@@ -1,6 +1,7 @@
 package server.chinesecheckers;
 
 import java.net.*;
+import java.util.ArrayList;
 
 /**
  * Główna klasa aplikacji serwera
@@ -9,86 +10,60 @@ public class ServerApp {
 
     public static final int DEFAULT_PORT = 4444;
 
-    public int clientCount;
     public int maxPlayers;
-    public ClientThread[] players;
+    public ArrayList<ClientThread> players;
     public GameEngine game;
 
-    public static void main( String[] args ) {
+    public static void main(String[] args) {
         try {
             int maxPlayers = Integer.parseInt(args[0]);
-            new ServerApp(maxPlayers);
-        } catch(NumberFormatException e) {
-            System.out.println("ERROR: Invalid number of players. Use 2, 3, 4 or 6 as an argument.");
+            int port = Integer.parseInt(args[1]);
+            new ServerApp(maxPlayers, port);
+        } catch(Exception e) {
+            System.out.println("ERROR: Invalid argument. Try [maxPlayers: int, port: int]");
         }
     }
 
-    private ServerApp(int maxPlayers) {
+    private ServerApp(int maxPlayers, int port) {
         this.maxPlayers = maxPlayers;
-        runServer();
+        runServer(port);
     }
 
-    private void runServer() {
-        int port = DEFAULT_PORT;
-
+    private void runServer(int port) {
         try (ServerSocket serverSocket = new ServerSocket(port)) {
             System.out.println("Info: Server listening on port " + port);
 
-            players = new ClientThread[maxPlayers + 1];
-            clientCount = 0;
+            players = new ArrayList<ClientThread>();
             game = new GameEngine(this);
 
+            int id = 0;
             while (true) {
                 Socket socket = serverSocket.accept();
 
-                if (clientCount < maxPlayers) {
-                    players = updatePlayers(socket, true);
-                    clientCount = updateClientCount();
+                if (players.size() < maxPlayers) {
+                    players.add(new ClientThread(socket, id, this));
+                    players.get(players.size() - 1).start();
+                    id++;
+                    if(players.size() == maxPlayers) {
+                        System.out.println("[Server] Starting game.");
+                        game.start('c', maxPlayers);
+                    }
                 }
                 else {
-                    //komunikat do klienta o rozlaczeniu z powodu limitu
                     socket.close();
-                    //zakonczenie programu klienta
                 }
             }
         } catch (Exception e) {
             System.err.println("ERROR: " + e);
-            players = updatePlayers(null, false);
-            clientCount = updateClientCount();
         }
     }
 
-    public ClientThread[] updatePlayers(Socket socket, boolean add) {
-        ClientThread[] result = new ClientThread[maxPlayers + 1];
-        int index = 1;
-
-        for (int i = 1; i <= maxPlayers; i++) {
-            if (players[i] != null && players[i].getState() != Thread.State.TERMINATED) {
-                result[index] = players[i];
-                result[index].changePlayerNumber(index);
-                index++;
+    public void updatePlayers() {
+        for(ClientThread client : players) {
+            if(client.getState() == Thread.State.TERMINATED) {
+                players.remove(client);
             }
         }
-
-        if (add) {
-            result[index] = new ClientThread(socket, index, this);
-            result[index].start();
-            System.out.println("Info: New player joined with number: " + index);
-        }
-
-        return result;
-    }
-
-    public int updateClientCount() {
-        int result = 0;
-        
-        for (int i = 1; i <= maxPlayers; i++) {
-            if (players[i] != null) {
-                result++;
-            }
-        }
-
-        return result;
     }
 
     /**
@@ -96,9 +71,17 @@ public class ServerApp {
      * Pierwotny wysyłacz nie otrzymuje tutaj wiadomości ponieważ dla niego jest generowana inna wiadomość
      */
     public void printForAllExcept(String message, ClientThread excludedSender) {
-        for (int i = 1; i <= clientCount; i++) {
-            if (players[i] != null && players[i].getState() != Thread.State.TERMINATED && players[i] != excludedSender) {
-                players[i].printMessage(message);
+        for(ClientThread client : players) {
+            if(client != null && client.getState() != Thread.State.TERMINATED && client != excludedSender) {
+                client.printMessage(message);
+            }
+        }
+    }
+
+    public void printForAll(String message) {
+        for(ClientThread client : players) {
+            if(client != null && client.getState() != Thread.State.TERMINATED) {
+                client.printMessage(message);
             }
         }
     }

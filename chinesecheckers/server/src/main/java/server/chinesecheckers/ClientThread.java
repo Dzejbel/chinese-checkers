@@ -8,21 +8,23 @@ import java.io.*;
  */
 public class ClientThread extends Thread {
 
-    public Socket socket;
+    private Socket socket;
     private ServerApp server;
-    public int playerNumber;
-    public int status; // 0 - czeka na gre, 1 w grze, czeka na ruch, 2 - wykonuje ruch
+
+    public int playerID;
+    private String playerNickname;
+    private int status; // 0 - czeka na gre, 1 - w grze, czeka na ruch, 2 - wykonuje ruch
 
     private PrintWriter out;
 
     /**
      * Konstruktor do ustawienia socketu komunikacji z klientem oraz przypisanego wstępnie numeru gracza
      * @param socket
-     * @param playerNumber
+     * @param playerID
      */
-    public ClientThread(Socket socket, int playerNumber, ServerApp server) {
+    public ClientThread(Socket socket, int playerID, ServerApp server) {
         this.socket = socket;
-        this.playerNumber = playerNumber;
+        this.playerID = playerID;
         this.server = server;
         status = 0;
     }
@@ -34,36 +36,36 @@ public class ClientThread extends Thread {
             out = new PrintWriter(socket.getOutputStream(), true);
             BufferedReader in = new BufferedReader(new InputStreamReader(socket.getInputStream()));
 
-            String clientMessage, playerNickname;
-            clientMessage = in.readLine();
+            String clientMessage = in.readLine();
 
             int spaceIndex = clientMessage.indexOf(' ');
             try {
                 playerNickname = clientMessage.substring(spaceIndex + 1);
             } catch (Exception e) {
-                playerNickname = "Unknown";
+                playerNickname = "Player " + playerID;
             }
 
-            System.out.println("player with nickname '" + playerNickname + " and number " + playerNumber + "' connected to server");
+            System.out.println("player with nickname '" + playerNickname + "' connected to server");
             out.println("Hello " + playerNickname + "! I am server!");
 
             do {
                 clientMessage = in.readLine();
                 // Jeśli response jest null to znaczy że serwer został zamknięty
                 if (clientMessage == null) {
-                    System.out.println("player:" + playerNumber + " DISCONNECTED ");
+                    System.out.println("player:" + playerID + " DISCONNECTED ");
                     break;
                 }
-                System.out.println("player:" + playerNumber + " >> " + clientMessage);
-                server.printForAllExcept("player:" + playerNumber + " >> " + clientMessage, this);
+                System.out.println("player:" + playerID + " >> " + clientMessage);
                 
                 String response = response(clientMessage);
-                out.println(response);
-
+                if(response.startsWith("[CLI]")) {
+                    printMessage(response.substring(5));
+                } else {
+                    server.printForAll(response.substring(5));
+                }
             } while (!clientMessage.equals("exit"));
 
-            server.updatePlayers(socket, false);
-            server.updateClientCount();
+            server.updatePlayers();
             socket.close();
 
         } catch (UnknownHostException severNotFoundException) {
@@ -93,52 +95,43 @@ public class ClientThread extends Thread {
             case "exit":
                 response = command;
                 break;
-            case "start":
-                int arg = Integer.parseInt(argument);
-                if (server.game.state()) {
-                    response = "The game is already being played";
-                }
-                else if (arg == server.clientCount) {
-                    response = server.game.start(1, arg);
-                } else {
-                    response = "Invalid number of players (currently " + server.clientCount + ")";
-                }
-                break;
             case "draw":
-                if (server.game.state()) {
-                    response = server.game.execute(playerNumber, command, argument);
-                } else {
-                    response = "There is no game currently being played";
-                }
+                response = "[ALL] " + server.game.draw();
                 break;
             case "skip":
-            if (server.game.state()) {
-                response = "Skipped your turn. " + server.game.nextPlayer();
+                if(status == 2) {
+                    response = "[ALL] " + playerNickname + " skipped his turn.";
+                    server.game.nextPlayer();
                 } else {
-                    response = "There is no game currently being played";
+                    response = "[CLI] It's not your turn.";
                 }
                 break;
             case "move":
-                if (server.game.state()) {
-                    response = server.game.execute(playerNumber, command, argument);
+                if(status == 2) {
+                    try {
+                        server.game.move(playerID, argument);
+                        response = "[ALL]" + playerNickname + " moved " + argument + ".";
+                    } catch (IllegalArgumentException e) {
+                        response = "[CLI] " + e.getMessage();
+                    }
                 } else {
-                    response = "There is no game currently being played";
+                    response = "[CLI] It's not your turn.";
                 }
                 break;
             default:
-                response = "Unknown command.";
+                response = "[CLI] Unknown command.";
                 break;
         }
 
         return response;
     }
 
-    /**
-     * Metoda aktualizująca numer gracza
-     * @param newPlayerNumber
-     */
-    public void changePlayerNumber(int newPlayerNumber) {
-        playerNumber = newPlayerNumber;
+    public int getStatus() {
+        return status;
+    }
+
+    public void changeStatus(int status) {
+        this.status = status;
     }
 
     public void printMessage(String message) {

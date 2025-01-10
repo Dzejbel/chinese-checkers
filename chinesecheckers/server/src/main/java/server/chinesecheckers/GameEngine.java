@@ -5,46 +5,28 @@ import java.util.Random;
 public class GameEngine {
     private ServerApp server;
     private Game game;
-    private ClientThread[] players;
-    private int[] playersId;
     private int currentPlayer;
 
     public GameEngine(ServerApp server) {
         this.server = server;
     }
 
-    public String start(int type, int numberOfPlayers) {
-        if (numberOfPlayers != 2 && numberOfPlayers != 3 && numberOfPlayers != 4 && numberOfPlayers != 6) {
-            return "Unable to start new game for " + numberOfPlayers + " - try for 2, 3, 4 or 6.";
-        }
-
-        players = new ClientThread[numberOfPlayers];
-        playersId = new int[numberOfPlayers];
-
-        int index = 0;
-        int availablePlayers = 0;
-        for (int i = 1; i <= server.clientCount; i++) {
-            if ((server.players[i] != null || server.players[i].getState() == Thread.State.TERMINATED) && server.players[i].status == 0) {
-                server.players[i].status = 1;
-                players[index] = server.players[i];
-                playersId[index] = i;
-                
-                availablePlayers++;
-                index++;
-            }
-        }
-
-        if (availablePlayers == numberOfPlayers) {
-            game = new Game(type, numberOfPlayers);
-            currentPlayer = new Random().nextInt(numberOfPlayers);
-            players[currentPlayer].status = 2;
-            return "Started new game for " + numberOfPlayers;
-        } else {
-            for (int i = 0; i < numberOfPlayers; i++) {
-                server.players[i].status = 0;
-            }
-            players = null;
-            return "Unable to start new game for " + numberOfPlayers + " - not enough players!";
+    public void start(char variant, int numberOfPlayers) throws IllegalArgumentException {
+        switch(variant) {
+            case 'c': 
+                try {
+                    game = new ClassicGame(numberOfPlayers);
+                    for(ClientThread client : server.players) {
+                        client.changeStatus(1);
+                    }
+                    currentPlayer = new Random().nextInt(numberOfPlayers);
+                    server.players.get(currentPlayer).changeStatus(2);
+                } catch (IllegalArgumentException e) {
+                    throw e;
+                }
+                break;
+            default: 
+                throw new IllegalArgumentException("Unknown game type.");
         }
     }
 
@@ -56,30 +38,28 @@ public class GameEngine {
         }
     }
 
-    public String execute(int player, String command, String arguments) {
-        String result;
-        switch (command) {
-            case "move":
-                int xS = Integer.parseInt(arguments.substring(0, arguments.indexOf(',')));
-                int yS = Integer.parseInt(arguments.substring(arguments.indexOf(',') + 1, arguments.indexOf('-')));
-                int xF = Integer.parseInt(arguments.substring(arguments.indexOf('-') + 1, arguments.lastIndexOf(',')));
-                int yF = Integer.parseInt(arguments.substring(arguments.lastIndexOf(',') + 1));
-                result = game.move(player, xS, yS, xF, yF) + ". " + nextPlayer();
-                break;
-            case "draw":
-                result = game.draw();
-                break;
-            default:
-                result = "Unknown command.";
-                break;
-        }
-        return result;
+    public String draw() {
+        return game.draw();
     }
 
-    public String nextPlayer() {
-        players[currentPlayer].status = 1;
-        currentPlayer = (currentPlayer + 1) % players.length;
-        players[currentPlayer].status = 2;
-        return "Next player: " + players[currentPlayer].playerNumber;
+    public void move(int playerID, String args) throws IllegalArgumentException {
+        try {
+            int xS = Integer.parseInt(args.substring(0, args.indexOf(',')));
+            int yS = Integer.parseInt(args.substring(args.indexOf(',') + 1, args.indexOf('-')));
+            int xF = Integer.parseInt(args.substring(args.indexOf('-') + 1, args.lastIndexOf(',')));
+            int yF = Integer.parseInt(args.substring(args.lastIndexOf(',') + 1));
+            game.move(currentPlayer, xS, yS, xF, yF);
+            nextPlayer();
+        } catch (NumberFormatException e) {
+            throw new IllegalArgumentException("Invalid fields.");
+        } catch (IllegalArgumentException e) {
+            throw e;
+        }
+    }
+
+    public void nextPlayer() {
+        server.players.get(currentPlayer).changeStatus(1);
+        currentPlayer = (currentPlayer + 1) % server.players.size();
+        server.players.get(currentPlayer).changeStatus(2);
     }
 }
